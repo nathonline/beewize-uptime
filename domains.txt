@@ -10,3 +10,4 @@ support.beewize.fr
 sign.beewize.fr
 creche.beewize.fr
 vault.beewize.fr
+test-panne-simulee.beewize.fr
