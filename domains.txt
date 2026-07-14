@@ -1,0 +1,12 @@
+# Domaines de production Beewize sondés depuis l'extérieur.
+# Une ligne = un domaine. Les lignes vides et les # sont ignorés.
+app.beewize.fr
+compta.beewize.fr
+auth.beewize.fr
+ged.beewize.fr
+ia.beewize.fr
+dataroom.beewize.fr
+support.beewize.fr
+sign.beewize.fr
+creche.beewize.fr
+vault.beewize.fr

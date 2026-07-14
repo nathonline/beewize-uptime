@@ -1,0 +1,77 @@
+name: Sonde production
+
+# Sondage depuis un runner GitHub (jamais le runner auto-hébergé : il tourne SUR
+# le serveur surveillé, il serait donc muet exactement quand on a besoin de lui).
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sonde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Sonder les domaines
+        id: probe
+        run: ./probe.sh
+        continue-on-error: true
+
+      - name: Rapport
+        id: report
+        run: |
+          {
+            echo 'report<<EOF_REPORT'
+            cat /tmp/report.md
+            echo 'EOF_REPORT'
+          } >> "$GITHUB_OUTPUT"
+          if [ -s /tmp/down.txt ]; then
+            echo "down=true" >> "$GITHUB_OUTPUT"
+            {
+              echo 'down_list<<EOF_DOWN'
+              sed 's/^/- /' /tmp/down.txt
+              echo 'EOF_DOWN'
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "down=false" >> "$GITHUB_OUTPUT"
+          fi
+          cat /tmp/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # ── PANNE : ouvrir une issue (ou commenter celle qui existe) ──────────
+      - name: Alerter
+        if: steps.report.outputs.down == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ steps.report.outputs.report }}
+          DOWN: ${{ steps.report.outputs.down_list }}
+        run: |
+          existing=$(gh issue list --state open --label panne --limit 1 --json number --jq '.[0].number')
+          body=$(printf '**Domaines en panne :**\n%s\n\n%s\n\n_Sonde : %s_\n' \
+            "$DOWN" "$REPORT" "$(date -u '+%Y-%m-%d %H:%M UTC')")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "🔴 Production en panne" --label panne --body "$body"
+          fi
+
+      # ── RETOUR À LA NORMALE : clore l'issue ouverte ───────────────────────
+      - name: Clore l'alerte
+        if: steps.report.outputs.down == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list --state open --label panne --limit 1 --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "✅ Tous les domaines répondent de nouveau ($(date -u '+%Y-%m-%d %H:%M UTC')). Clôture automatique."
+            gh issue close "$existing"
+          fi
+
+      # Faire échouer le job APRÈS avoir alerté : GitHub envoie alors un mail.
+      - name: Échouer si panne
+        if: steps.report.outputs.down == 'true'
+        run: exit 1
