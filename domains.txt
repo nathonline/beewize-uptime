@@ -10,3 +10,4 @@ support.beewize.fr
 sign.beewize.fr
 creche.beewize.fr
 vault.beewize.fr
+# directory-api.beewize.fr/health — EN ATTENTE DE DÉPLOIEMENT (actuellement 404 ; décommenter une fois Task 8 déployée)
