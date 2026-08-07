@@ -10,3 +10,7 @@ support.beewize.fr
 sign.beewize.fr
 creche.beewize.fr
 vault.beewize.fr
+# Directory : on vise /health et non la racine — la racine du port console n'est pas
+# une route servie (404 permanent), et probe.sh compte 401 comme sain, donc une route
+# authentifiée donnerait un contrôle vert par construction.
+directory-api.beewize.fr/health
