@@ -44,6 +44,7 @@ jobs:
 
       # ── PANNE : ouvrir une issue (ou commenter celle qui existe) ──────────
       - name: Alerter
+        id: alerte
         if: steps.report.outputs.down == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -55,12 +56,16 @@ jobs:
             "$DOWN" "$REPORT" "$(date -u '+%Y-%m-%d %H:%M UTC')")
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
+            # Panne déjà signalée : pas de nouvelle notification push.
+            echo "nouvelle=false" >> "$GITHUB_OUTPUT"
           else
             gh issue create --title "🔴 Production en panne" --label panne --body "$body"
+            echo "nouvelle=true" >> "$GITHUB_OUTPUT"
           fi
 
       # ── RETOUR À LA NORMALE : clore l'issue ouverte ───────────────────────
       - name: Clore l'alerte
+        id: cloture
         if: steps.report.outputs.down == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -69,7 +74,51 @@ jobs:
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "✅ Tous les domaines répondent de nouveau ($(date -u '+%Y-%m-%d %H:%M UTC')). Clôture automatique."
             gh issue close "$existing"
+            echo "retablie=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "retablie=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # ── NOTIFICATION PUSH — uniquement sur BASCULEMENT ────────────────────
+      #
+      # L'issue GitHub et le mail d'échec existent déjà, mais ils n'ont réveillé
+      # personne le 2026-08-07 : la prod est restée à terre 3 h 51 (04:04→07:54)
+      # pendant que l'alerte s'ouvrait et se refermait toute seule.
+      #
+      # On notifie au BASCULEMENT seulement — ouverture de la panne et retour à
+      # la normale — jamais à chaque sonde. Une alerte qui sonne 12 fois par
+      # heure finit en sourdine, et on est revenu au point de départ.
+      #
+      # ALERTE_WEBHOOK_URL : URL complète à appeler en POST (ex. ntfy.sh).
+      # Si le secret est absent, l'étape ne fait RIEN et ne casse pas la sonde.
+      - name: Notifier (push)
+        if: steps.alerte.outputs.nouvelle == 'true' || steps.cloture.outputs.retablie == 'true'
+        env:
+          URL: ${{ secrets.ALERTE_WEBHOOK_URL }}
+          DOWN: ${{ steps.report.outputs.down_list }}
+          PANNE: ${{ steps.alerte.outputs.nouvelle }}
+        run: |
+          if [ -z "${URL:-}" ]; then
+            echo "::warning::ALERTE_WEBHOOK_URL absent — aucune notification push envoyée."
+            exit 0
+          fi
+          if [ "$PANNE" = "true" ]; then
+            titre="Production BEEWIZE en panne"
+            corps=$(printf 'Domaines injoignables :\n%s' "$DOWN")
+            prio="urgent"; tags="rotating_light"
+          else
+            titre="Production BEEWIZE rétablie"
+            corps="Tous les domaines répondent de nouveau."
+            prio="default"; tags="white_check_mark"
+          fi
+          # --fail-with-body : un webhook qui refuse doit faire ROUGIR l'étape.
+          # Sans cela une notification jamais partie passerait pour envoyée.
+          curl --fail-with-body -sS -m 20 \
+            -H "Title: $titre" \
+            -H "Priority: $prio" \
+            -H "Tags: $tags" \
+            -d "$corps" \
+            "$URL"
 
       # Faire échouer le job APRÈS avoir alerté : GitHub envoie alors un mail.
       - name: Échouer si panne
